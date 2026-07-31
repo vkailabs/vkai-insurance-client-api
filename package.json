@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "cors": "^2.8.6",
     "express": "^4.21.2",
     "firebase-admin": "^12.7.0",
     "node-cron": "^3.0.3",

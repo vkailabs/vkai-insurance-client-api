@@ -1,7 +1,9 @@
 'use strict';
 
 const express = require('express');
+const cors = require('cors');
 
+const env = require('./config/env');
 const { correlationId } = require('./middleware/correlationId');
 const { requestLogger } = require('./middleware/requestLogger');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
@@ -14,6 +16,15 @@ const syncRoutes = require('./routes/sync');
 
 function createApp() {
   const app = express();
+
+  // CORS: allow the frontend dev origin to send the Firebase Bearer token.
+  app.use(
+    cors({
+      origin: env.allowedOrigin,
+      allowedHeaders: ['Authorization', 'Content-Type'],
+      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    })
+  );
 
   app.use(express.json());
   app.use(correlationId); // must run before requestLogger so req.log exists

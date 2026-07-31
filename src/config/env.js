@@ -32,6 +32,9 @@ const env = {
 
   providerApiBaseUrl: process.env.VKAI_INSURANCE_PROVIDER_API_BASE_URL || 'http://localhost:4100',
 
+  // Frontend origin allowed by CORS (Vite dev server by default).
+  allowedOrigin: process.env.VKAI_INSURANCE_CLIENT_API_ALLOWED_ORIGIN || 'http://localhost:5173',
+
   serviceName: 'vkai-insurance-client-api',
 };
 
