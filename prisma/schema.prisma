@@ -1,0 +1,97 @@
+// Prisma schema for vkai-insurance-client-api
+// Table names are snake_case + plural; columns are snake_case via @map.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("VKAI_INSURANCE_CLIENT_API_DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid()) @db.Uuid
+  firebaseUid String   @unique @map("firebase_uid")
+  email       String   @unique
+  name        String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  policies Policy[]
+
+  @@map("users")
+}
+
+// Cached, read-only (from this side's POV) copy of the provider's policy catalog.
+model PolicyCatalog {
+  id               String    @id @default(uuid()) @db.Uuid
+  providerPolicyId String    @map("provider_policy_id") @db.Uuid
+  name             String
+  description      String?
+  premiumAmount    Decimal   @map("premium_amount") @db.Decimal(12, 2)
+  coverageAmount   Decimal   @map("coverage_amount") @db.Decimal(12, 2)
+  isActive         Boolean   @default(true) @map("is_active")
+  lastSyncedAt     DateTime? @map("last_synced_at")
+
+  policies Policy[]
+
+  @@map("policy_catalog")
+}
+
+// Actual enrollments.
+model Policy {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  policyCatalogId  String   @map("policy_catalog_id") @db.Uuid
+  providerPolicyId String?  @map("provider_policy_id") @db.Uuid // set once synced to provider
+  status           String   @default("pending") // pending | active | expired
+  enrolledAt       DateTime @default(now()) @map("enrolled_at")
+  expiryDate       DateTime @map("expiry_date") @db.Date
+  syncStatus       String   @default("pending") @map("sync_status") // pending | synced | failed
+  syncAttempts     Int      @default(0) @map("sync_attempts")
+  eventId          String?  @map("event_id") @db.Uuid // idempotency key sent on last outbound sync
+
+  user          User          @relation(fields: [userId], references: [id])
+  policyCatalog PolicyCatalog @relation(fields: [policyCatalogId], references: [id])
+  premiums      Premium[]
+  claims        Claim[]
+
+  @@index([userId])
+  @@index([syncStatus])
+  @@map("policies")
+}
+
+model Premium {
+  id           String   @id @default(uuid()) @db.Uuid
+  policyId     String   @map("policy_id") @db.Uuid
+  amount       Decimal  @db.Decimal(12, 2)
+  paidAt       DateTime @default(now()) @map("paid_at")
+  syncStatus   String   @default("pending") @map("sync_status")
+  syncAttempts Int      @default(0) @map("sync_attempts")
+  eventId      String?  @map("event_id") @db.Uuid
+
+  policy Policy @relation(fields: [policyId], references: [id])
+
+  @@index([policyId])
+  @@index([syncStatus])
+  @@map("premiums")
+}
+
+model Claim {
+  id              String   @id @default(uuid()) @db.Uuid
+  policyId        String   @map("policy_id") @db.Uuid
+  providerClaimId String?  @map("provider_claim_id") @db.Uuid
+  amountClaimed   Decimal  @map("amount_claimed") @db.Decimal(12, 2)
+  description     String
+  status          String   @default("Submitted") // Submitted | Under Review | Approved | Rejected | Paid
+  submittedAt     DateTime @default(now()) @map("submitted_at")
+  syncStatus      String   @default("pending") @map("sync_status")
+  syncAttempts    Int      @default(0) @map("sync_attempts")
+  eventId         String?  @map("event_id") @db.Uuid
+
+  policy Policy @relation(fields: [policyId], references: [id])
+
+  @@index([policyId])
+  @@index([syncStatus])
+  @@map("claims")
+}

@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vkai_insurance_client_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - vkai_insurance_client_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vkai_insurance_client_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      VKAI_INSURANCE_CLIENT_API_PORT: "4000"
+      # Inside the compose network Postgres is reachable at host "postgres".
+      VKAI_INSURANCE_CLIENT_API_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/vkai_insurance_client_dev
+      VKAI_INSURANCE_CLIENT_API_FIREBASE_PROJECT_ID: ${VKAI_INSURANCE_CLIENT_API_FIREBASE_PROJECT_ID:-}
+      VKAI_INSURANCE_CLIENT_API_FIREBASE_CLIENT_EMAIL: ${VKAI_INSURANCE_CLIENT_API_FIREBASE_CLIENT_EMAIL:-}
+      VKAI_INSURANCE_CLIENT_API_FIREBASE_PRIVATE_KEY: ${VKAI_INSURANCE_CLIENT_API_FIREBASE_PRIVATE_KEY:-}
+      VKAI_INSURANCE_CLIENT_API_SYNC_KEY: ${VKAI_INSURANCE_CLIENT_API_SYNC_KEY:-local-dev-sync-key}
+      VKAI_INSURANCE_PROVIDER_API_BASE_URL: ${VKAI_INSURANCE_PROVIDER_API_BASE_URL:-http://localhost:4100}
+      VKAI_INSURANCE_CLIENT_API_LOG_LEVEL: ${VKAI_INSURANCE_CLIENT_API_LOG_LEVEL:-info}
+
+volumes:
+  vkai_insurance_client_pgdata:
