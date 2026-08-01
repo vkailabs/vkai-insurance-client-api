@@ -78,6 +78,13 @@ async function syncPolicyRecord(policy, correlationId, log = logger) {
   const eventId = ensureEventId(policy);
   const eventType = policy.providerPolicyId ? EVENT_TYPES.policyRenewed : EVENT_TYPES.policyEnrolled;
 
+  // Resolve the related user and catalog record. Callers (enroll/renew handlers
+  // and the retry job) pass a bare policy row without relations, so fetch them
+  // here to keep the outbound payload correct regardless of caller.
+  const user = policy.user || (await prisma.user.findUnique({ where: { id: policy.userId } }));
+  const catalog =
+    policy.policyCatalog || (await prisma.policyCatalog.findUnique({ where: { id: policy.policyCatalogId } }));
+
   const result = await syncToProvider(
     ENDPOINTS.policy,
     {
@@ -86,8 +93,13 @@ async function syncPolicyRecord(policy, correlationId, log = logger) {
       correlationId,
       payload: {
         client_policy_id: policy.id,
+        // Opaque, stable reference to the client-side user. Firebase UID is the
+        // user's canonical external identity and never changes.
+        client_user_ref: user ? user.firebaseUid : undefined,
         provider_policy_id: policy.providerPolicyId,
-        policy_catalog_id: policy.policyCatalogId,
+        // The provider knows nothing of our local catalog PKs; send the catalog
+        // record's provider_policy_id (the id on the provider's own side).
+        policy_catalog_id: catalog ? catalog.providerPolicyId : undefined,
         status: policy.status,
         enrolled_at: policy.enrolledAt,
         expiry_date: policy.expiryDate,
@@ -151,10 +163,17 @@ async function persistSyncResult(kind, record, eventId, result) {
   const delegate = prisma[kind]; // prisma.policy / prisma.premium / prisma.claim
 
   if (result.ok) {
-    return delegate.update({
-      where: { id: record.id },
-      data: { syncStatus: 'synced', eventId },
-    });
+    const data = { syncStatus: 'synced', eventId };
+
+    // On the first successful policy sync the provider creates its own policy
+    // record and returns its id. Capture it (only when we don't have one yet)
+    // so subsequent syncs are correctly treated as renewals, not enrollments.
+    if (kind === 'policy' && !record.providerPolicyId) {
+      const providerPolicyId = result.body?.policy?.id;
+      if (providerPolicyId) data.providerPolicyId = providerPolicyId;
+    }
+
+    return delegate.update({ where: { id: record.id }, data });
   }
 
   return delegate.update({

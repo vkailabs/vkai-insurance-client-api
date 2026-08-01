@@ -29,11 +29,14 @@ router.post('/', async (req, res, next) => {
     const expiryDate = new Date(enrolledAt);
     expiryDate.setFullYear(expiryDate.getFullYear() + 1);
 
+    // providerPolicyId is intentionally left unset here: the provider only
+    // creates its own policy record when it receives the outbound sync, so this
+    // enrollment has no provider-side id yet. It's populated after the first
+    // successful sync (see persistSyncResult in providerSync.js).
     const policy = await prisma.policy.create({
       data: {
         userId: req.user.id,
         policyCatalogId,
-        providerPolicyId: catalog.providerPolicyId,
         status: 'pending',
         enrolledAt,
         expiryDate,
