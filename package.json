@@ -1,0 +1,26 @@
+{
+  "name": "vkai-insurance-client-api",
+  "version": "0.1.0",
+  "description": "VK AI Labs — Node.js client-side API for the Insurance module (policies, premiums, claims)",
+  "license": "MIT",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cors": "^2.8.6",
+    "express": "^4.21.2",
+    "firebase-admin": "^12.7.0",
+    "node-cron": "^3.0.3",
+    "pino": "^9.5.0",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}
