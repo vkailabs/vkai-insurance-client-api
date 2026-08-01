@@ -39,16 +39,18 @@ async function refreshCatalogFromProvider(correlationId, log = logger) {
     const now = new Date();
 
     for (const item of items) {
-      const providerPolicyId = item.provider_policy_id || item.id;
+      // The provider returns raw Prisma objects in camelCase; its own `id` is
+      // this catalog entry's provider_policy_id from our side's POV.
+      const providerPolicyId = item.id;
       if (!providerPolicyId) continue;
 
       const data = {
         providerPolicyId,
         name: item.name,
         description: item.description ?? null,
-        premiumAmount: item.premium_amount,
-        coverageAmount: item.coverage_amount,
-        isActive: item.is_active ?? true,
+        premiumAmount: item.premiumAmount,
+        coverageAmount: item.coverageAmount,
+        isActive: item.isActive ?? true,
         lastSyncedAt: now,
       };
 
