@@ -39,13 +39,27 @@ src/
   routes/                catalog, policies, premiums, claims, sync
 ```
 
+## Prerequisites
+
+- **Docker + Docker Compose** — the recommended path; brings up the API and Postgres together.
+- For the host-Node path instead: **Node.js 20+** and **npm**, plus a reachable Postgres.
+- **Firebase service-account credentials** (project id, client email, private key) to verify
+  customer JWTs. Without them the server still boots and serves `/healthz` and `/v1/sync/*`, but
+  customer routes return 401.
+
 ## Quick start (Docker — recommended)
 
 `docker compose up` brings up the API + Postgres, applies the Prisma migration on boot, and
-serves the API on port **4000** with a single command:
+serves the API on port **4000** with a single command. First, seed your environment:
 
 ```bash
-docker compose up --build
+cp .env.example .env
+```
+
+Fill in the Firebase credentials and a sync key in `.env`, then start everything detached:
+
+```bash
+docker compose up --build -d
 ```
 
 - Postgres is exposed on `localhost:5432` with a named volume (`vkai_insurance_client_pgdata`)
@@ -98,10 +112,16 @@ All app settings use the `VKAI_INSURANCE_CLIENT_API_` prefix. Copy `.env.example
 | `VKAI_INSURANCE_CLIENT_API_SYNC_KEY` | Shared secret for provider↔client sync |
 | `VKAI_INSURANCE_PROVIDER_API_BASE_URL` | Base URL of the provider (Azure) API |
 | `VKAI_INSURANCE_CLIENT_API_LOG_LEVEL` | `trace`…`fatal` (default `info`) |
+| `VKAI_INSURANCE_CLIENT_API_ALLOWED_ORIGIN` | CORS origin for the frontend (default `http://localhost:5173`) |
 
 > Note: in `docker-compose.yml` the API's `DATABASE_URL` is overridden to reach Postgres at host
 > `postgres` (the compose service name); the `localhost` value in `.env.example` is for running
 > the API directly on your machine.
+>
+> ⚠️ `docker-compose.yml` lists environment variables **explicitly** — it does not load the whole
+> `.env` file. When you add a new var to `.env.example` and the app code, you **must** also add it
+> to the `api` service's `environment:` list in `docker-compose.yml`, or the container never
+> receives it.
 
 ## API routes
 
