@@ -46,6 +46,9 @@ async function refreshCatalogFromProvider(correlationId, log = logger) {
 
       const data = {
         providerPolicyId,
+        // Provider-owned display key. Cached verbatim; never generated here.
+        // Null when the provider omits it so the row still upserts cleanly.
+        key: item.key ?? null,
         name: item.name,
         description: item.description ?? null,
         premiumAmount: item.premiumAmount,

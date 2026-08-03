@@ -129,9 +129,9 @@ All customer routes require a Firebase JWT via `Authorization: Bearer <token>`.
 
 | Method | Route | Description |
 | --- | --- | --- |
-| `GET` | `/v1/catalog` | Cached policy catalog; refreshes from the provider if older than 15 min |
+| `GET` | `/v1/catalog` | Cached policy catalog (each row includes the provider's display `key`); refreshes from the provider if older than 15 min |
 | `POST` | `/v1/policies` | Enroll in a policy `{ policy_catalog_id }`, then sync outbound |
-| `GET` | `/v1/policies?include=premiums,claims` | The user's policies with optional nested premiums/claims (dashboard view) |
+| `GET` | `/v1/policies?include=premiums,claims` | The user's policies with optional nested premiums/claims (dashboard view). Each policy carries a top-level `key` read through its cached catalog entry (`null` if not yet cached); nested premiums/claims have no `key` |
 | `POST` | `/v1/policies/:id/renew` | Extend `expiry_date` (`{ extend_months }` or `{ expiry_date }`), sync update |
 | `POST` | `/v1/premiums` | Pay a premium `{ policy_id, amount }`, then sync outbound |
 | `POST` | `/v1/claims` | File a claim `{ policy_id, amount_claimed, description }`, then sync outbound |
@@ -190,6 +190,26 @@ npx prisma migrate deploy
 ```bash
 npx prisma studio
 ```
+
+### Force-refresh the cached catalog
+
+`GET /v1/catalog` only refreshes from the provider when the cache is older than 15 minutes. To
+pull immediately — e.g. right after the provider ships a catalog change so cached rows pick up
+their new `key` without waiting for the staleness window — run the one-off refresh script
+(`scripts/refresh-catalog.js`) where the provider API is reachable:
+
+```bash
+docker compose exec api npm run catalog:refresh
+```
+
+Or, running the API directly on the host with the same env loaded:
+
+```bash
+npm run catalog:refresh
+```
+
+The upsert is keyed on `provider_policy_id`, so existing cached rows are updated in place (no
+duplicates).
 
 ## Deployment
 

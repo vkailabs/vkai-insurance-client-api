@@ -71,7 +71,18 @@ router.get('/', async (req, res, next) => {
       },
     });
 
-    res.json({ data: policies });
+    // Surface the plan's provider-owned display `key` at the top level of each
+    // policy, read through the cached catalog relation the policy already holds.
+    // `key` is NOT a column on policies — it's looked up via policyCatalog. It
+    // degrades to null when the referenced catalog entry has no key yet (e.g.
+    // the cache hasn't been refreshed since the provider added keys). Nested
+    // premiums and claims deliberately do NOT get a key.
+    const shaped = policies.map((policy) => ({
+      ...policy,
+      key: policy.policyCatalog ? policy.policyCatalog.key ?? null : null,
+    }));
+
+    res.json({ data: shaped });
   } catch (err) {
     next(err);
   }

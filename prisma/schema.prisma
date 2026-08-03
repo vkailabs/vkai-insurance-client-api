@@ -26,6 +26,11 @@ model User {
 model PolicyCatalog {
   id               String    @id @default(uuid()) @db.Uuid
   providerPolicyId String    @map("provider_policy_id") @db.Uuid
+  // Provider-owned display key (e.g. "PG2", or collision-suffixed "PG2-2").
+  // Cached verbatim from the provider's catalog pull; the client NEVER generates
+  // it. Nullable so pre-existing cached rows stay valid until the next refresh.
+  // Display-only: intentionally NOT copied onto policies/premiums/claims.
+  key              String?
   name             String
   description      String?
   premiumAmount    Decimal   @map("premium_amount") @db.Decimal(12, 2)
