@@ -17,7 +17,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            cd ~/vkai-insurance-client-api
+            cd /home/vibhavkulshrestha/vkai-insurance-client-api
             git pull origin main
             docker compose down
             docker compose up --build -d
