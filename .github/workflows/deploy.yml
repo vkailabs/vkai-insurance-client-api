@@ -17,15 +17,18 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            echo "DEBUG: whoami = $(whoami)"
-            echo "DEBUG: hostname = $(hostname)"
-            echo "DEBUG: home dir = $HOME"
-            echo "DEBUG: pwd = $(pwd)"
-            ls -la /home/ 2>&1 || echo "cannot list /home"
-            ls -la /home/vibhavkulshrestha/ 2>&1 || echo "cannot list vibhavkulshrestha home"
             cd /home/vibhavkulshrestha/vkai-insurance-client-api
             git pull origin main
             docker compose down
             docker compose up --build -d
-            sleep 5
-            curl -f https://146.148.64.235.nip.io/healthz
+            sleep 20
+            for i in 1 2 3 4 5; do
+              if curl -f https://146.148.64.235.nip.io/healthz; then
+                echo "Health check passed"
+                exit 0
+              fi
+              echo "Attempt $i failed, retrying in 5s..."
+              sleep 5
+            done
+            echo "Health check failed after 5 attempts"
+            exit 1
