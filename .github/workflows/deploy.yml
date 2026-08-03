@@ -17,6 +17,12 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
+            echo "DEBUG: whoami = $(whoami)"
+            echo "DEBUG: hostname = $(hostname)"
+            echo "DEBUG: home dir = $HOME"
+            echo "DEBUG: pwd = $(pwd)"
+            ls -la /home/ 2>&1 || echo "cannot list /home"
+            ls -la /home/vibhavkulshrestha/ 2>&1 || echo "cannot list vibhavkulshrestha home"
             cd /home/vibhavkulshrestha/vkai-insurance-client-api
             git pull origin main
             docker compose down
