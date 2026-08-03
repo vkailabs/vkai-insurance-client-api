@@ -27,6 +27,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY package*.json ./
 COPY prisma ./prisma
 COPY src ./src
+COPY scripts ./scripts
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 
