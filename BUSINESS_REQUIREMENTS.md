@@ -19,6 +19,7 @@ modified from here.
    token on each customer request and resolves it to a local user record.
 2. **Policy catalog** — serves a catalog of available policies. This catalog is a **cached,
    read-only** copy of the provider's catalog, refreshed from the provider API when stale.
+   Each catalog entry also caches a provider-owned display **`key`** (see "Catalog key" below).
 3. **Policy enrollments** — lets a customer enroll in a catalog policy, creating a local
    enrollment record that is then synced to the provider.
 4. **Premium payments (virtual)** — records premium payments against a policy. Payments are
@@ -97,6 +98,36 @@ Called **by the provider side**, not by customers. These are protected by a **sh
 sent in the `X-VKAI-Sync-Key` header — **never** by a customer JWT. They let the provider push
 authoritative status changes back to the client (e.g. a policy becoming active, or a claim being
 approved/rejected/paid). Requests with a missing or invalid sync key are rejected with 401.
+
+## Catalog key (VKAI-002)
+
+The provider owns a display **`key`** on each catalog entry (e.g. `"PG2"`, or the
+collision-suffixed `"PG2-2"`). As of VKAI-002 the provider's catalog-pull endpoint
+(`GET /v1/catalog/policies`, the source this API refreshes its cache from) returns `key` on
+every row.
+
+Rules:
+
+- **Cached, not owned.** The client stores `key` verbatim on each cached catalog row
+  (`policy_catalog.key`, nullable). The client **never generates** a key — it only stores and
+  echoes what the provider sends. On refresh, the existing upsert (matched on
+  `provider_policy_id`) **updates** the row's `key` in place; no duplicates are created. `key` is
+  nullable so pre-existing cached rows stay valid until the next refresh fills it in.
+- **Display-only.** `key` is **not** a field on `policies`, `premiums`, or `claims`, and it is
+  **not** part of any enrollment/premium/claim sync payload. It exists purely to label catalog
+  entries in the UI.
+- **Where it's exposed.**
+  - `GET /v1/catalog` — each catalog row carries `key` (string or `null`) directly, since rows
+    serialize straight from `policy_catalog`.
+  - `GET /v1/policies` — each policy carries a top-level `key`, **looked up through the cached
+    catalog relation** (`policyCatalog.key`) the policy already references — not stored on the
+    policy. It degrades to `null` when the referenced catalog entry has no key yet (e.g. the cache
+    hasn't been refreshed since the provider added keys). Nested `premiums` and `claims` do **not**
+    get a `key`.
+- **Force-refresh.** After the provider ships a catalog change, run
+  `npm run catalog:refresh` (script: `scripts/refresh-catalog.js`) to pull immediately, bypassing
+  the 15-minute staleness window, so already-cached rows pick up their `key` right away. See
+  README / CLAUDE.md for the exact deploy command.
 
 ## Out of scope
 

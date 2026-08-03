@@ -87,6 +87,23 @@ Two things were learned the hard way building it:
 
 Requires these **GitHub repo secrets**: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`.
 
+### 7. Catalog `key` is display-only — never put it on policies/premiums/claims (VKAI-002)
+
+The provider owns a display `key` per catalog entry. This API **caches** it on
+`policy_catalog.key` (nullable) — filled in from the provider's `GET /v1/catalog/policies` pull,
+matched/updated on `provider_policy_id`. **The client never generates a key**; it only stores/echoes
+what the provider sends.
+
+- It is **NOT** a column on `policies`, `premiums`, or `claims`, and **NOT** in any sync payload.
+  Don't add it there.
+- `GET /v1/catalog` exposes `key` directly on each row (rows serialize from `policy_catalog`).
+- `GET /v1/policies` exposes a top-level `key` per policy **read through the `policyCatalog`
+  relation** (not a policy column), degrading to `null` when the catalog entry has no key yet.
+  Nested premiums/claims must NOT carry a key.
+- **Force-refresh** (bypass the 15-min staleness window) with `npm run catalog:refresh`
+  (`scripts/refresh-catalog.js`), which calls `refreshCatalogFromProvider()` directly. Run it at
+  deploy where the provider API is reachable, e.g. `docker compose exec api npm run catalog:refresh`.
+
 ## Keeping documentation current
 
 **If a change is significant** — a new field, a new business rule, a new architectural decision,
