@@ -103,4 +103,11 @@ approved/rejected/paid). Requests with a missing or invalid sync key are rejecte
 - Real payment processing (premiums are virtual).
 - The provider side (Azure) — reached only over HTTPS; never built or modified from this repo.
 - The frontend (`vkai-insurance-client`) — a separate repository.
-- Production infrastructure concerns (Nginx, SSL, cloud deployment) beyond local dev scaffolding.
+- Nginx / SSL configuration (handled at the VM/infra layer, not in this repo).
+
+## Deployment
+
+Production runs on a **GCP Compute Engine VM**. A **GitHub Actions** pipeline
+(`.github/workflows/deploy.yml`) **automatically deploys on every push to `main`**: it SSHes to
+the VM, pulls the latest code, rebuilds the Docker containers, and verifies the API is healthy
+via `/healthz`. See [README.md](README.md#deployment) for details and the required repo secrets.
