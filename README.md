@@ -191,8 +191,28 @@ npx prisma migrate deploy
 npx prisma studio
 ```
 
+## Deployment
+
+Production runs on a **GCP Compute Engine VM**. Deployment is automated via **GitHub Actions**
+([.github/workflows/deploy.yml](.github/workflows/deploy.yml)): **every push to `main`
+automatically deploys to the production VM** over SSH — it pulls the latest code, rebuilds the
+Docker containers (`docker compose up --build -d`), and verifies the API is healthy by polling
+`/healthz` (with a startup wait and retries).
+
+Because deploys are triggered by `main`, the normal flow is: push to `dev` → open a PR → merge
+`dev` → `main`, and the merge to `main` ships it. Manual SSH deployment is still possible for
+break-glass situations, but the pipeline is the standard path.
+
+The workflow requires these **GitHub repo secrets** to be configured:
+
+| Secret | Purpose |
+| --- | --- |
+| `DEPLOY_HOST` | Production VM host/IP for SSH |
+| `DEPLOY_USER` | SSH user on the VM |
+| `DEPLOY_SSH_KEY` | Private SSH key for that user |
+
 ## What this repo does NOT include
 
-- No Nginx / SSL / GCP deployment config (later phase)
+- No Nginx / SSL config in this repo (terminated on the VM / infra layer, out of scope here)
 - No frontend (`vkai-insurance-client` is a separate repo)
 - No provider side (Azure) — reached only over HTTP

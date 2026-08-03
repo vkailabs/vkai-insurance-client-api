@@ -71,6 +71,29 @@ use `http://host.docker.internal:<port>` — **not** `localhost`. Inside a conta
 refers to the container itself, so `localhost:<port>` will not reach a service in another compose
 project.
 
+### 6. CI/CD deploy pipeline (GitHub Actions → GCP VM)
+
+`.github/workflows/deploy.yml` auto-deploys to the production GCP VM on every push to `main`
+(SSH via `appleboy/ssh-action`: `git pull`, `docker compose up --build -d`, health check).
+Two things were learned the hard way building it:
+
+- **Use absolute paths in the deploy script, NOT `~`.** `~` does **not** reliably expand in this
+  SSH action's non-interactive shell, causing `No such file or directory` even when the path is
+  correct. Use the full path, e.g. `/home/vibhavkulshrestha/vkai-insurance-client-api`.
+- **The health check needs a real wait + retry, not an immediate single curl.** Postgres
+  healthcheck + Prisma migration + API startup takes longer than a few seconds. The workflow
+  sleeps **20s** then retries the `/healthz` curl **5 times, 5s apart** before failing. A single
+  immediate check produces false 502 failures on a deploy that actually succeeded.
+
+Requires these **GitHub repo secrets**: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`.
+
+## Keeping documentation current
+
+**If a change is significant** — a new field, a new business rule, a new architectural decision,
+new infrastructure/pipeline, or a newly discovered gotcha — **update this repo's own
+`BUSINESS_REQUIREMENTS.md` and/or `README.md` as part of the same commit**, not as a separate
+afterthought. Minor or purely cosmetic changes don't need a doc update.
+
 ## Git workflow
 
 - **Always work on `dev`. Never commit directly to `main`.**
