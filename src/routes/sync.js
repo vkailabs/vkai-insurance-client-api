@@ -3,6 +3,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { syncAuth } = require('../middleware/syncAuth');
+const { upsertCatalogItem } = require('../services/catalogSync');
 
 const router = express.Router();
 
@@ -96,6 +97,36 @@ router.post('/claims/status', async (req, res, next) => {
 
     req.log.info({ eventId, claimId: updated.id, status }, 'Claim status updated from provider');
     res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /v1/sync/catalog
+// Inbound provider PUSH of a catalog create/edit/deactivate. A single event type
+// (`catalog.upserted`) covers all three; deactivation arrives as `isActive: false`.
+//
+// The `payload` is camelCase and mirrors the pull response GET /v1/catalog/policies
+// row-for-row (id, key, name, description, premiumAmount, coverageAmount, isActive,
+// createdAt). We reuse the SAME mapping/upsert the pull refresh uses
+// (`upsertCatalogItem`), keyed on payload.id -> providerPolicyId, so:
+//   - a re-delivered / retried event never creates a duplicate row, and
+//   - applying the same event twice leaves the same final state (idempotent).
+// This is additive to the existing stale-cache PULL fallback; both feed policy_catalog.
+router.post('/catalog', async (req, res, next) => {
+  try {
+    const { payload, eventId } = unwrapEnvelope(req.body);
+    if (!payload || !payload.id) {
+      return res.status(400).json({ error: 'payload.id is required' });
+    }
+
+    const row = await upsertCatalogItem(payload);
+
+    req.log.info(
+      { eventId, providerPolicyId: payload.id, isActive: row.isActive },
+      'Catalog entry upserted from provider push'
+    );
+    res.json({ data: row });
   } catch (err) {
     next(err);
   }

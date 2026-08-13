@@ -18,8 +18,11 @@ modified from here.
    Firebase Admin SDK. The app does not mint tokens; it validates the `Authorization: Bearer`
    token on each customer request and resolves it to a local user record.
 2. **Policy catalog** — serves a catalog of available policies. This catalog is a **cached,
-   read-only** copy of the provider's catalog, refreshed from the provider API when stale.
-   Each catalog entry also caches a provider-owned display **`key`** (see "Catalog key" below).
+   read-only** copy of the provider's catalog, kept fresh two ways: a **PUSH** from the provider
+   (inbound `POST /v1/sync/catalog`, applied immediately) and a **PULL** fallback (refreshed from
+   the provider API when the cache is stale). Both feed the same `policy_catalog` table via the
+   same upsert. Each catalog entry also caches a provider-owned display **`key`** (see "Catalog
+   key" below).
 3. **Policy enrollments** — lets a customer enroll in a catalog policy, creating a local
    enrollment record that is then synced to the provider.
 4. **Premium payments (virtual)** — records premium payments against a policy. Payments are
@@ -96,8 +99,14 @@ their own policies, premiums, and claims.
 
 Called **by the provider side**, not by customers. These are protected by a **shared secret**
 sent in the `X-VKAI-Sync-Key` header — **never** by a customer JWT. They let the provider push
-authoritative status changes back to the client (e.g. a policy becoming active, or a claim being
-approved/rejected/paid). Requests with a missing or invalid sync key are rejected with 401.
+authoritative changes back to the client. Requests with a missing or invalid sync key are
+rejected with 401. Current inbound routes:
+
+- `POST /v1/sync/policies/status` — provider pushes a policy status change (idempotent no-op if
+  already in target status).
+- `POST /v1/sync/claims/status` — provider pushes a claim status change (same pattern).
+- `POST /v1/sync/catalog` — provider PUSHES a catalog create/edit/deactivate (VKAI-003, see
+  "Push-based catalog sync" below).
 
 ## Catalog key (VKAI-002)
 
@@ -128,6 +137,40 @@ Rules:
   `npm run catalog:refresh` (script: `scripts/refresh-catalog.js`) to pull immediately, bypassing
   the 15-minute staleness window, so already-cached rows pick up their `key` right away. See
   README / CLAUDE.md for the exact deploy command.
+
+## Push-based catalog sync (VKAI-003)
+
+The catalog cache is kept fresh by **two complementary paths that both write the same
+`policy_catalog` table through the same upsert** (`upsertCatalogItem` in
+`src/services/catalogSync.js`):
+
+- **PUSH (primary, immediate).** The provider calls the inbound route
+  `POST /v1/sync/catalog` whenever a catalog entry is **created, edited, or deactivated**. This
+  applies the change to the cache right away, instead of waiting for staleness.
+- **PULL (fallback, unchanged).** The existing 15-minute stale-cache refresh from the provider's
+  `GET /v1/catalog/policies` remains fully intact as a safety net (e.g. a missed push). VKAI-003
+  is **additive** — it does not remove or weaken the pull.
+
+Contract for `POST /v1/sync/catalog`:
+
+- **Auth:** the shared-secret `X-VKAI-Sync-Key` header (same `syncAuth` middleware as every other
+  inbound sync route). Missing/invalid key → 401. Not a customer/Firebase JWT.
+- **Envelope:** the standard snake_case envelope `{ event_id, event_type, occurred_at, source,
+  payload }`. `event_type` is `catalog.upserted` — a **single event type covers create, edit and
+  deactivate**. Business fields are read from `payload`, never the envelope root.
+- **Payload is camelCase** (unlike the snake_case status-sync payloads) and mirrors the pull
+  response `GET /v1/catalog/policies` row **one-for-one**: `id`, `key`, `name`, `description`,
+  `premiumAmount` (decimal-as-string), `coverageAmount` (decimal-as-string), `isActive`,
+  `createdAt`.
+- **Dedupe / idempotency:** upsert keyed on `payload.id` → `policy_catalog.provider_policy_id`
+  (the business/dedupe key). A re-delivered or retried event never creates a duplicate row, and
+  applying the same event twice yields the same final state. We do **not** separately record
+  `event_id`, matching this repo's other inbound handlers, which rely on idempotent state rather
+  than an event-log table.
+- **Deactivation:** `isActive: false` is stored verbatim on `policy_catalog.is_active`. The
+  customer-facing `GET /v1/catalog` filters to `isActive = true`, so a deactivated plan
+  immediately disappears from the browse catalog. (Existing customer policies referencing a now
+  deactivated catalog entry are unaffected — only the browse catalog is filtered.)
 
 ## Out of scope
 
