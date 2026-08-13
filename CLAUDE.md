@@ -104,6 +104,26 @@ what the provider sends.
   (`scripts/refresh-catalog.js`), which calls `refreshCatalogFromProvider()` directly. Run it at
   deploy where the provider API is reachable, e.g. `docker compose exec api npm run catalog:refresh`.
 
+### 8. Catalog is push+pull; the push payload is camelCase (VKAI-003)
+
+The provider now **PUSHES** catalog create/edit/deactivate to `POST /v1/sync/catalog`
+immediately, in addition to the existing stale-cache **PULL** fallback. Both paths write the
+same `policy_catalog` table through the **same** `upsertCatalogItem()` in
+`src/services/catalogSync.js` — keep it that way; don't fork the mapping.
+
+- **The push payload is camelCase**, unlike the snake_case status-sync payloads on the other
+  inbound routes. It mirrors the pull's `GET /v1/catalog/policies` row one-for-one (`id`, `key`,
+  `name`, `description`, `premiumAmount`, `coverageAmount`, `isActive`, `createdAt`). Don't
+  snake_case it.
+- **Dedupe/upsert on `payload.id` → `provider_policy_id`** (the business key). No separate
+  `event_id` log — the other inbound handlers dedupe via idempotent state, not an event table, so
+  this route follows suit. Upsert-on-id makes retries/redeliveries a no-op-equivalent.
+- **`isActive: false` = deactivation.** It's stored verbatim, and `GET /v1/catalog` filters
+  `isActive: true` so a deactivated plan drops out of the browse catalog. Whenever the pull's
+  mapping used to assume "always active" — it no longer can; the push can flip a row inactive.
+- Guarded by the same `syncAuth` (`X-VKAI-Sync-Key`) middleware as the other `/v1/sync/*` routes;
+  no new env var was needed.
+
 ## Keeping documentation current
 
 **If a change is significant** — a new field, a new business rule, a new architectural decision,
