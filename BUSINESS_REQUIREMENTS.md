@@ -172,6 +172,26 @@ Contract for `POST /v1/sync/catalog`:
   immediately disappears from the browse catalog. (Existing customer policies referencing a now
   deactivated catalog entry are unaffected — only the browse catalog is filtered.)
 
+## Premium sync carries the enrolment date (VKAI-009 / VJS-48)
+
+The outbound premium-payment sync (`premium.paid` → provider `POST /v1/sync/premiums`) now
+carries an additional field **`enrolled_at`** in its `payload`, alongside the existing
+`client_premium_id`, `client_policy_id`, `amount`, and `paid_at`.
+
+- **Value.** `enrolled_at` is the enrolment date of the premium's linked enrollment — the client
+  `Policy.enrolledAt` (`@map("enrolled_at")`) of the policy referenced by `premium.policyId`. It
+  is sent as-is (ISO/date), or **`null`** if the date can't be resolved.
+- **Best-effort, never blocking.** The premium row usually arrives at the sync helper without its
+  `policy` relation loaded (both the pay-premium handler and the 5-min retry job pass a bare row),
+  so `syncPremiumRecord` looks the policy up by `premium.policyId`. If that lookup fails for any
+  reason it sends `null` rather than throwing — consistent with the repo's best-effort sync model,
+  where sync must never break the customer's request. The retry path re-reads the premium and
+  resolves the date the same way, so retries carry `enrolled_at` too.
+- **Consumed by the provider.** The provider-api accepts `enrolled_at` as an **optional**
+  snake_case field on `POST /v1/sync/premiums` and stores it as the premium's enrolment date
+  (surfaced on the provider portal's "Premiums" tab). This is a purely additive contract change —
+  the field being absent/null remains valid on the provider side.
+
 ## Out of scope
 
 - Real payment processing (premiums are virtual).
