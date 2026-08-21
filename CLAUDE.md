@@ -124,6 +124,29 @@ same `policy_catalog` table through the **same** `upsertCatalogItem()` in
 - Guarded by the same `syncAuth` (`X-VKAI-Sync-Key`) middleware as the other `/v1/sync/*` routes;
   no new env var was needed.
 
+### 9. Policy cancellation is the FIRST client→provider status push (VKAI-010)
+
+`POST /v1/policies/:id/cancel` lets a customer cancel their own policy, but **only while it is
+`pending`** — the handler hard-guards `status !== 'pending'` with **409** (404 if the policy isn't
+found / isn't theirs). It sets `status = 'cancelled'` (new terminal status; `pending | active |
+expired | cancelled` — free string, no enum, no migration) and resets the sync trio exactly like
+renew, then fires the outbound event.
+
+- The outbound event `policy.cancelled` (`EVENT_TYPES.policyCancelled`) is the **first
+  client → provider status direction** — everything before flowed provider → client. It POSTs to
+  the provider's `POST /v1/sync/policies/status` (`ENDPOINTS.policyStatus`). **This path name also
+  exists as the client's own INBOUND route (reverse direction) — don't confuse them; different
+  clouds, different routes.**
+- **Exact payload (snake_case) inside the envelope:** `{ client_policy_id, status: 'cancelled' }`.
+  Built by `cancelPolicyRecord()` in `providerSync.js`, reusing `syncToProvider` +
+  `persistSyncResult('policy', …)`.
+- **Retry-routing gotcha:** the 5-min retry job must NOT re-send a cancelled policy through
+  `syncPolicyRecord` (that would mis-send it as an enrollment to `/v1/sync/policies`). The job now
+  routes policy rows through `syncPolicyRecordByStatus`, which sends a `cancelled` policy via
+  `cancelPolicyRecord` (→ `/v1/sync/policies/status`) and all others via `syncPolicyRecord`. If you
+  ever add another policy status that pushes to a different endpoint, extend that dispatcher — do
+  not special-case it inside the retry job.
+
 ## Keeping documentation current
 
 **If a change is significant** — a new field, a new business rule, a new architectural decision,

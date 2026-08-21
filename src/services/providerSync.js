@@ -9,6 +9,12 @@ const { logger } = require('../lib/logger');
 // independent and reached only over HTTP; these paths are the agreed contract.
 const ENDPOINTS = {
   policy: '/v1/sync/policies',
+  // Client -> provider policy STATUS push (currently only customer-initiated
+  // cancellation, VKAI-010). This is the FIRST client->provider status
+  // direction. Note the client's own INBOUND route has the same path name for
+  // the reverse (provider->client) direction — that's fine, they live in
+  // different clouds and are entirely separate routes.
+  policyStatus: '/v1/sync/policies/status',
   premium: '/v1/sync/premiums',
   claim: '/v1/sync/claims',
 };
@@ -16,6 +22,7 @@ const ENDPOINTS = {
 const EVENT_TYPES = {
   policyEnrolled: 'policy.enrolled',
   policyRenewed: 'policy.renewed',
+  policyCancelled: 'policy.cancelled',
   premiumPaid: 'premium.paid',
   claimFiled: 'claim.filed',
 };
@@ -111,6 +118,43 @@ async function syncPolicyRecord(policy, correlationId, log = logger) {
   return persistSyncResult('policy', policy, eventId, result);
 }
 
+// Customer-initiated cancellation of a pending policy (VKAI-010). Unlike
+// syncPolicyRecord (which posts the full enrollment/renewal to /v1/sync/policies),
+// this pushes a minimal status change to the provider's /v1/sync/policies/status
+// route — the first client->provider status direction. Reuses the standard
+// envelope, event_id idempotency, and persistSyncResult bookkeeping.
+async function cancelPolicyRecord(policy, correlationId, log = logger) {
+  const eventId = ensureEventId(policy);
+
+  const result = await syncToProvider(
+    ENDPOINTS.policyStatus,
+    {
+      eventId,
+      eventType: EVENT_TYPES.policyCancelled,
+      correlationId,
+      payload: {
+        client_policy_id: policy.id,
+        status: 'cancelled',
+      },
+    },
+    log
+  );
+
+  return persistSyncResult('policy', policy, eventId, result);
+}
+
+// Route a policy row to the correct outbound sync based on its lifecycle
+// status. A cancelled policy must re-push the CANCELLATION event to the status
+// route, never be mis-sent as an enrollment/renewal to /v1/sync/policies. Used
+// by the 5-min retry job so a failed cancel is retried on the right endpoint
+// with the same event_id.
+async function syncPolicyRecordByStatus(policy, correlationId, log = logger) {
+  if (policy.status === 'cancelled') {
+    return cancelPolicyRecord(policy, correlationId, log);
+  }
+  return syncPolicyRecord(policy, correlationId, log);
+}
+
 async function syncPremiumRecord(premium, correlationId, log = logger) {
   const eventId = ensureEventId(premium);
 
@@ -204,6 +248,8 @@ module.exports = {
   EVENT_TYPES,
   syncToProvider,
   syncPolicyRecord,
+  cancelPolicyRecord,
+  syncPolicyRecordByStatus,
   syncPremiumRecord,
   syncClaimRecord,
 };

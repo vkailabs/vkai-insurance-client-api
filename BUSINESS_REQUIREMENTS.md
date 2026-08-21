@@ -88,7 +88,7 @@ middleware (`Authorization: Bearer <token>`):
 
 - **Catalog** — browse available policies (refreshed from the provider when stale).
 - **Policies** — enroll, list the customer's own policies (with nested premiums/claims for the
-  dashboard), and renew.
+  dashboard), renew, and **cancel a pending policy** (see "Customer policy cancellation" below).
 - **Premiums** — pay a premium against one of the customer's policies.
 - **Claims** — file a claim and list the customer's claims.
 
@@ -191,6 +191,58 @@ carries an additional field **`enrolled_at`** in its `payload`, alongside the ex
   snake_case field on `POST /v1/sync/premiums` and stores it as the premium's enrolment date
   (surfaced on the provider portal's "Premiums" tab). This is a purely additive contract change —
   the field being absent/null remains valid on the provider side.
+
+## Customer policy cancellation (VKAI-010 / VJS-49)
+
+A customer may **cancel their own policy while it is still `pending`** — i.e. before the
+provider has approved/activated it.
+
+- **New Policy status value: `cancelled`.** Client policy status is now
+  `pending | active | expired | cancelled`. Status is a free string with a comment in
+  `prisma/schema.prisma` (no enum), so this needed no migration. `cancelled` is **terminal**.
+- **New customer route:** `POST /v1/policies/:id/cancel` (Firebase-authenticated, scoped to the
+  caller's own policy, like renew).
+  - Loads the caller's own policy; **404** if not found / not theirs.
+  - **Eligibility guard (server-side, not just UI):** allowed **only** when `status === 'pending'`.
+    Any other status (active/expired/already-cancelled) is rejected with **409 Conflict** and an
+    explanatory error — the policy is not cancelled.
+  - On success sets `status = 'cancelled'` and resets sync bookkeeping
+    (`syncStatus: 'pending'`, `syncAttempts: 0`, `eventId: null`) so a fresh event is minted and
+    retries start clean (mirrors renew), then fires the outbound cancellation sync (best-effort,
+    never fails the customer request) and returns the updated policy.
+  - **No premium/claim cascade or refund** — premiums are virtual; cancellation is terminal.
+
+### First client → provider status push: `policy.cancelled`
+
+Historically, policy **status** changes flowed only **provider → client** (activation, via the
+client's inbound `POST /v1/sync/policies/status`). VKAI-010 introduces the **first
+client → provider** status push.
+
+- **New outbound event `policy.cancelled`** (`EVENT_TYPES.policyCancelled`).
+- **Target provider inbound route:** `POST /v1/sync/policies/status`
+  (`ENDPOINTS.policyStatus`). Note this shares a path *name* with the client's own inbound status
+  route, but they are separate routes in separate clouds (client → provider here) — that's fine.
+- **Exact payload contract (snake_case), wrapped in the standard envelope:**
+  ```json
+  {
+    "event_id": "<uuid>",
+    "event_type": "policy.cancelled",
+    "occurred_at": "<ISO-8601>",
+    "source": "client",
+    "payload": { "client_policy_id": "<client policy id>", "status": "cancelled" }
+  }
+  ```
+  The provider-api implements the matching consumer against this exact contract.
+- **Transport/bookkeeping reuse:** built in `providerSync.js` via `cancelPolicyRecord(policy,
+  correlationId, log)` — reuses `syncToProvider` for transport and `persistSyncResult('policy',
+  …)` for the local `sync_status`/`sync_attempts`/`event_id` update, same reliability trio as
+  every other outbound event.
+- **Retry routing (important).** The 5-min retry job selects `pending`/`failed` policy rows and
+  must re-push a failed cancellation to the **status** route, not the enrollment route. The job
+  now dispatches policy rows through `syncPolicyRecordByStatus`, which routes a
+  `status === 'cancelled'` policy to `cancelPolicyRecord` (→ `/v1/sync/policies/status`) and every
+  other policy to `syncPolicyRecord` (→ `/v1/sync/policies`), reusing the same `event_id` either
+  way. This prevents a retried cancel from being mis-sent as an enrollment.
 
 ## Out of scope
 

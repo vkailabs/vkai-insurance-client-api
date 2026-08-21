@@ -49,7 +49,7 @@ model Policy {
   userId           String   @map("user_id") @db.Uuid
   policyCatalogId  String   @map("policy_catalog_id") @db.Uuid
   providerPolicyId String?  @map("provider_policy_id") @db.Uuid // set once synced to provider
-  status           String   @default("pending") // pending | active | expired
+  status           String   @default("pending") // pending | active | expired | cancelled
   enrolledAt       DateTime @default(now()) @map("enrolled_at")
   expiryDate       DateTime @map("expiry_date") @db.Date
   syncStatus       String   @default("pending") @map("sync_status") // pending | synced | failed

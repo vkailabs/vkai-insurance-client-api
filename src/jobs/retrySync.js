@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const prisma = require('../lib/prisma');
 const { withCorrelationId } = require('../lib/logger');
 const {
-  syncPolicyRecord,
+  syncPolicyRecordByStatus,
   syncPremiumRecord,
   syncClaimRecord,
 } = require('../services/providerSync');
@@ -40,7 +40,9 @@ async function runOnce() {
   log.info('Retry sync job starting');
   try {
     const [policies, premiums, claims] = await Promise.all([
-      retryTable(prisma.policy, syncPolicyRecord, correlationId, log),
+      // Dispatch by status so a failed CANCELLATION re-pushes to the status
+      // route, not the enrollment route (VKAI-010).
+      retryTable(prisma.policy, syncPolicyRecordByStatus, correlationId, log),
       retryTable(prisma.premium, syncPremiumRecord, correlationId, log),
       retryTable(prisma.claim, syncClaimRecord, correlationId, log),
     ]);

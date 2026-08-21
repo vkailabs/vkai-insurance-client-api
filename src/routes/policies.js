@@ -3,7 +3,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { firebaseAuth } = require('../middleware/firebaseAuth');
-const { syncPolicyRecord } = require('../services/providerSync');
+const { syncPolicyRecord, cancelPolicyRecord } = require('../services/providerSync');
 
 const router = express.Router();
 
@@ -127,6 +127,51 @@ router.post('/:id/renew', async (req, res, next) => {
     });
 
     const synced = await syncPolicyRecord(updated, req.correlationId, req.log);
+
+    res.json({ data: synced });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /v1/policies/:id/cancel
+// Customer-initiated cancellation of their OWN policy, allowed ONLY while the
+// policy is still `pending` (i.e. before the provider has approved/activated it).
+// Cancellation is terminal — no premium/claim cascade or refund (premiums are
+// virtual). On success we push a `policy.cancelled` status event to the provider
+// (VKAI-010): the first client -> provider status direction.
+router.post('/:id/cancel', async (req, res, next) => {
+  try {
+    const policy = await prisma.policy.findFirst({
+      where: { id: req.params.id, userId: req.user.id },
+    });
+    if (!policy) {
+      return res.status(404).json({ error: 'Policy not found' });
+    }
+
+    // Server-side eligibility guard: cancellation is only allowed on a pending
+    // policy. Anything else (active/expired/already-cancelled) is a conflict.
+    if (policy.status !== 'pending') {
+      return res.status(409).json({
+        error: `Only a pending policy can be cancelled (current status: ${policy.status})`,
+      });
+    }
+
+    // Terminal status change is a fresh outbound event: reset sync bookkeeping
+    // so a new event_id is minted and retries start clean (mirrors renew).
+    const updated = await prisma.policy.update({
+      where: { id: policy.id },
+      data: {
+        status: 'cancelled',
+        syncStatus: 'pending',
+        syncAttempts: 0,
+        eventId: null,
+      },
+    });
+
+    // Local write is committed; the outbound cancellation sync is best-effort
+    // and won't fail the customer's request.
+    const synced = await cancelPolicyRecord(updated, req.correlationId, req.log);
 
     res.json({ data: synced });
   } catch (err) {
