@@ -114,6 +114,22 @@ async function syncPolicyRecord(policy, correlationId, log = logger) {
 async function syncPremiumRecord(premium, correlationId, log = logger) {
   const eventId = ensureEventId(premium);
 
+  // Resolve the linked enrollment's enrolment date so the provider can store it
+  // on its premium record (VKAI-009 / VJS-48). Callers (the pay-premium handler
+  // and the retry job) pass a bare premium row without the `policy` relation, so
+  // look the policy up by policyId here. Best-effort: if the date can't be
+  // resolved for any reason, send null rather than throwing — sync must never
+  // break the customer's request.
+  let enrolledAt = null;
+  try {
+    const policy =
+      premium.policy || (await prisma.policy.findUnique({ where: { id: premium.policyId } }));
+    enrolledAt = policy ? policy.enrolledAt : null;
+  } catch (err) {
+    log.warn({ err: err.message, premiumId: premium.id }, 'Could not resolve enrolledAt for premium sync');
+    enrolledAt = null;
+  }
+
   const result = await syncToProvider(
     ENDPOINTS.premium,
     {
@@ -125,6 +141,7 @@ async function syncPremiumRecord(premium, correlationId, log = logger) {
         client_policy_id: premium.policyId,
         amount: premium.amount,
         paid_at: premium.paidAt,
+        enrolled_at: enrolledAt,
       },
     },
     log
